@@ -1,0 +1,80 @@
+---
+- name: Publish cinema listings on vm1
+  hosts: web
+  become: true
+  vars:
+    movies:
+      - "Дорога к звёздам"
+      - "Ночной экспресс"
+      - "Летний дождь"
+  tasks:
+    - name: Install Nginx
+      ansible.builtin.apt:
+        name: nginx
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+
+    - name: Enable and start Nginx
+      ansible.builtin.service:
+        name: nginx
+        state: started
+        enabled: true
+
+    - name: Render the cinema listings
+      ansible.builtin.template:
+        src: index.html.j2
+        dest: /var/www/html/index.html
+        mode: '0644'
+      notify: Reload Nginx
+
+    - name: Apply pending handlers before checking the page
+      ansible.builtin.meta: flush_handlers
+
+    - name: Check HTTP status and page content
+      ansible.builtin.uri:
+        url: http://localhost
+        status_code: 200
+        return_content: true
+      register: cinema_page
+      failed_when: cinema_page.status != 200 or movies[0] not in cinema_page.content
+
+  handlers:
+    - name: Reload Nginx
+      ansible.builtin.service:
+        name: nginx
+        state: reloaded
+
+- name: Install tools and record the Git version on vm2
+  hosts: tools
+  become: true
+  tasks:
+    - name: Install tools
+      ansible.builtin.apt:
+        name:
+          - git
+          - curl
+          - tree
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+
+    - name: Read the Git version
+      ansible.builtin.command: git --version
+      register: git_version
+      changed_when: false
+
+    - name: Save the Git version
+      ansible.builtin.copy:
+        dest: /opt/versions.txt
+        content: "{{ git_version.stdout }}\n"
+        mode: '0644'
+
+    - name: Read the saved file
+      ansible.builtin.command: cat /opt/versions.txt
+      register: versions_file
+      changed_when: false
+
+    - name: Display the saved version
+      ansible.builtin.debug:
+        msg: "{{ versions_file.stdout }}"
